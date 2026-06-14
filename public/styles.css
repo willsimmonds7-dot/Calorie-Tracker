@@ -27,12 +27,24 @@ h1 { margin: 0; font-size: 1.7rem; }
   padding: 16px;
   margin: 16px 0;
 }
-.today { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.today { display: block; }
+.today-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .today-cal { display: flex; flex-direction: column; }
 .today-cal span { font-size: 2rem; font-weight: 700; color: var(--accent); line-height: 1; }
 .today-cal small { color: var(--muted); }
 .today-macros { display: flex; flex-direction: column; gap: 4px; text-align: right; font-size: 0.9rem; color: var(--muted); }
 .today-macros b { color: var(--text); }
+.today-energy {
+  display: flex; align-items: center; gap: 16px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--card2);
+}
+.te-cell { display: flex; flex-direction: column; }
+.te-cell small { color: var(--muted); font-size: 0.75rem; }
+.te-cell b { font-size: 1.2rem; font-weight: 700; }
+.te-state { margin-left: auto; font-size: 0.85rem; font-weight: 700; text-transform: capitalize; }
+.good { color: var(--accent); }
+.bad { color: #f87171; }
+.muted { color: var(--muted); }
 
 .stage-img {
   width: 100%;

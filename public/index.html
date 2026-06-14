@@ -18,12 +18,19 @@
   </header>
 
   <section class="card today" id="today">
-    <div class="today-cal"><span id="t-cal">0</span><small>kcal today</small></div>
-    <div class="today-macros">
-      <span>P <b id="t-p">0</b>g</span>
-      <span>C <b id="t-c">0</b>g</span>
-      <span>F <b id="t-f">0</b>g</span>
-      <span><b id="t-meals">0</b> meals</span>
+    <div class="today-row">
+      <div class="today-cal"><span id="t-cal">0</span><small>kcal eaten today</small></div>
+      <div class="today-macros">
+        <span>P <b id="t-p">0</b>g</span>
+        <span>C <b id="t-c">0</b>g</span>
+        <span>F <b id="t-f">0</b>g</span>
+        <span><b id="t-meals">0</b> meals</span>
+      </div>
+    </div>
+    <div class="today-energy" id="today-energy">
+      <div class="te-cell"><small>Burned</small><b id="t-burned">–</b></div>
+      <div class="te-cell"><small>Net</small><b id="t-net">–</b></div>
+      <div class="te-state" id="t-state"></div>
     </div>
   </section>
 

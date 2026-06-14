@@ -14,6 +14,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 // Time zone used to decide what counts as "today" for the daily totals.
 const TZ_NAME = process.env.TZ_NAME || "Europe/Amsterdam";
+// Optional shared secret to protect the energy-ingest endpoint (recommended).
+const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 
 // --- database (Postgres, e.g. free Supabase) ---
 if (!DATABASE_URL) {
@@ -37,6 +39,19 @@ async function initDb() {
       fat_g       DOUBLE PRECISION
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_energy (
+      day          TEXT PRIMARY KEY,            -- 'YYYY-MM-DD' local date
+      active_kcal  DOUBLE PRECISION DEFAULT 0,
+      resting_kcal DOUBLE PRECISION DEFAULT 0,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+}
+
+// today's date (YYYY-MM-DD) in the configured time zone
+function localToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ_NAME }).format(new Date());
 }
 
 // Photo is parsed in memory, sent to the AI, then discarded (nothing stored).
@@ -169,19 +184,26 @@ app.get("/api/summary", async (req, res) => {
        WHERE created_at >= (date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)`,
       [TZ_NAME]
     );
-    const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: TZ_NAME }).format(new Date());
-    res.json({ date: localDate, ...rows[0] });
+    const today = localToday();
+    const e = await pool.query(
+      `SELECT active_kcal, resting_kcal FROM daily_energy WHERE day = $1`,
+      [today]
+    );
+    const burned = e.rows.length ? (e.rows[0].active_kcal || 0) + (e.rows[0].resting_kcal || 0) : null;
+    const calories = rows[0].calories;
+    const net = burned == null ? null : calories - burned; // <0 = deficit
+    res.json({ date: today, ...rows[0], burned, net });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/daily?days=N -> per-day totals for the last N days (local time zone)
+// GET /api/daily?days=N -> per-day eaten + burned for the last N days (local TZ)
 app.get("/api/daily", async (req, res) => {
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 14, 1), 90);
-    const { rows } = await pool.query(
+    const meals = await pool.query(
       `SELECT to_char((created_at AT TIME ZONE $1)::date, 'YYYY-MM-DD') AS day,
               COUNT(*)::int               AS meals,
               COALESCE(SUM(calories),0)   AS calories,
@@ -195,7 +217,60 @@ app.get("/api/daily", async (req, res) => {
        ORDER BY day`,
       [TZ_NAME, days - 1]
     );
-    res.json(rows);
+    const energy = await pool.query(
+      `SELECT day, active_kcal, resting_kcal FROM daily_energy
+       WHERE day >= to_char(((date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)
+                             - (($2 || ' days')::interval)) AT TIME ZONE $1, 'YYYY-MM-DD')`,
+      [TZ_NAME, days - 1]
+    );
+    const burnByDay = {};
+    for (const r of energy.rows) burnByDay[r.day] = (r.active_kcal || 0) + (r.resting_kcal || 0);
+
+    const out = meals.rows.map((r) => ({
+      ...r,
+      burned: r.day in burnByDay ? burnByDay[r.day] : null,
+    }));
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/energy -> upsert a day's burned energy (from Apple Health via Shortcut)
+// Body JSON: { date?: 'YYYY-MM-DD', active?: number, resting?: number, total?: number }
+app.post("/api/energy", async (req, res) => {
+  try {
+    if (INGEST_TOKEN) {
+      const auth = req.get("authorization") || "";
+      const token = auth.replace(/^Bearer\s+/i, "").trim();
+      if (token !== INGEST_TOKEN) return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const b = req.body || {};
+    const day = (b.date && /^\d{4}-\d{2}-\d{2}$/.test(b.date)) ? b.date : localToday();
+
+    let active = Number(b.active);
+    let resting = Number(b.resting);
+    const total = Number(b.total);
+    // If only a single total was sent, store it whole in active_kcal.
+    if ((!Number.isFinite(active) && !Number.isFinite(resting)) && Number.isFinite(total)) {
+      active = total;
+      resting = 0;
+    }
+    active = Number.isFinite(active) ? active : 0;
+    resting = Number.isFinite(resting) ? resting : 0;
+
+    await pool.query(
+      `INSERT INTO daily_energy (day, active_kcal, resting_kcal, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (day) DO UPDATE
+         SET active_kcal = EXCLUDED.active_kcal,
+             resting_kcal = EXCLUDED.resting_kcal,
+             updated_at = now()`,
+      [day, active, resting]
+    );
+    res.json({ ok: true, day, active, resting, burned: active + resting });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

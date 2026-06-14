@@ -84,6 +84,23 @@ async function loadSummary() {
     $("t-c").textContent = Math.round(s.carbs_g);
     $("t-f").textContent = Math.round(s.fat_g);
     $("t-meals").textContent = s.meals;
+
+    const burnedEl = $("t-burned"), netEl = $("t-net"), stateEl = $("t-state");
+    if (s.burned == null) {
+      burnedEl.textContent = "–";
+      netEl.textContent = "–";
+      netEl.className = "";
+      stateEl.textContent = "no watch data yet";
+      stateEl.className = "te-state muted";
+    } else {
+      burnedEl.textContent = Math.round(s.burned);
+      const net = Math.round(s.net); // <0 = deficit
+      netEl.textContent = (net > 0 ? "+" : "") + net;
+      const deficit = net < 0;
+      netEl.className = deficit ? "good" : net > 0 ? "bad" : "";
+      stateEl.textContent = net === 0 ? "maintenance" : deficit ? "deficit" : "surplus";
+      stateEl.className = "te-state " + (net === 0 ? "muted" : deficit ? "good" : "bad");
+    }
   } catch {}
 }
 
@@ -106,6 +123,7 @@ async function loadTrends() {
         cal: r ? Math.round(r.calories) : 0,
         p: r ? r.protein_g : 0, c: r ? r.carbs_g : 0, f: r ? r.fat_g : 0,
         meals: r ? r.meals : 0,
+        burned: r && r.burned != null ? r.burned : null,
       });
     }
 
@@ -148,13 +166,25 @@ async function loadTrends() {
       })
       .join("");
 
-    // footer: average macros over last 7 logged days
+    // footer: average macros + average net (deficit/surplus) over last 7 logged days
     const loggedLast7 = last7.filter((d) => d.meals > 0);
+    const foot = $("tr-foot");
     if (loggedLast7.length) {
       const a = (k) => Math.round(loggedLast7.reduce((s, d) => s + d[k], 0) / loggedLast7.length);
-      $("tr-foot").textContent = `Avg macros/day (last 7 logged): P ${a("p")}g · C ${a("c")}g · F ${a("f")}g`;
+      let txt = `Avg macros/day (last 7 logged): P ${a("p")}g · C ${a("c")}g · F ${a("f")}g`;
+
+      const withBurn = loggedLast7.filter((d) => d.burned != null);
+      if (withBurn.length) {
+        const avgNet = Math.round(
+          withBurn.reduce((s, d) => s + (d.cal - d.burned), 0) / withBurn.length
+        );
+        const word = avgNet < 0 ? "deficit" : avgNet > 0 ? "surplus" : "maintenance";
+        const cls = avgNet < 0 ? "good" : avgNet > 0 ? "bad" : "muted";
+        txt += `<br><span class="${cls}">Avg net: ${avgNet > 0 ? "+" : ""}${avgNet} kcal/day (${word})</span>`;
+      }
+      foot.innerHTML = txt;
     } else {
-      $("tr-foot").textContent = "Log a few meals to see your weekly trend.";
+      foot.textContent = "Log a few meals to see your weekly trend.";
     }
   } catch {
     chart.innerHTML = '<div class="empty error">Could not load trends.</div>';
