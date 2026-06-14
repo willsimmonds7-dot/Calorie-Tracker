@@ -84,17 +84,24 @@ Open the **Shortcuts** app → **+** → add these actions in order:
    step 1. Then **Set Variable** → name it `Active`.
 3. **Find Health Samples** — Type: **Resting Energy**, same Today filter.
 4. **Calculate Statistics** — **Sum** of step 3 → **Set Variable** `Resting`.
-5. **Calculate** — `Active` **+** `Resting` → **Set Variable** `Total`.
-6. **Dictionary** — add one item: Key `total` (type Number) = `Total`.
-7. **Get Contents of URL**:
-   - URL: `https://YOUR-APP.onrender.com/api/energy`
-   - Method: **POST**
-   - Headers: `Authorization` = `Bearer YOUR_INGEST_TOKEN`, and
-     `Content-Type` = `application/json`
-   - Request Body: **JSON**, and set it to the **Dictionary** from step 6.
+5. **Calculate** — `Active` **+** `Resting`, then **Round** to nearest 1 →
+   **Set Variable** `Total`.
+6. **Get Contents of URL** (use **GET** — see note below):
+   - Method: **GET**
+   - URL: `https://YOUR-APP.onrender.com/api/energy?total=` and then insert the
+     **Total** variable right after `total=` (so it becomes `...?total=2345`).
+   - Headers: `Authorization` = `Bearer YOUR_INGEST_TOKEN`
+   - No Request Body.
 
 Run it once — you should see `{"ok":true,...}`. Open the app and today's card now
 shows **Burned** and **Net** (green = deficit, red = surplus).
+
+> **Why GET, not POST?** The iOS Shortcuts app can't reliably send POST requests
+> through some CDNs (the request just times out), but GET works perfectly. The
+> server accepts the burn data either way, so the Shortcut uses GET. If you'd
+> rather not put the token in a header, you can instead append it to the URL:
+> `?total=...&token=YOUR_INGEST_TOKEN` (only do this if your token has no
+> `+` or `/` characters, which break in URLs).
 
 ### Make it automatic
 Shortcuts → **Automation** → **+** → **Time of Day** → **23:55**, Daily → Run your
@@ -110,6 +117,11 @@ shortcut, and turn **off** "Ask Before Running". Now it posts every night.
 
 ### Quick manual test (optional)
 ```bash
+# GET (what the Shortcut uses)
+curl -i "https://YOUR-APP.onrender.com/api/energy?total=2400" \
+  -H "Authorization: Bearer YOUR_INGEST_TOKEN"
+
+# POST also works (e.g. from curl, which has no CDN issue)
 curl -X POST https://YOUR-APP.onrender.com/api/energy \
   -H "Authorization: Bearer YOUR_INGEST_TOKEN" \
   -H "Content-Type: application/json" \
@@ -143,7 +155,7 @@ Every meal is a row in your Supabase `meals` table (id, timestamp, description, 
 | `GET` | `/api/meals` | list meals, newest first |
 | `GET` | `/api/summary` | today's totals + burned/net (local time zone) |
 | `GET` | `/api/daily?days=N` | per-day eaten + burned for the last N days |
-| `POST` | `/api/energy` | upsert a day's burned energy (Bearer `INGEST_TOKEN`) |
+| `GET`/`POST` | `/api/energy` | upsert a day's burned energy (Bearer `INGEST_TOKEN`); GET takes `?total=` etc. |
 | `DELETE` | `/api/meals/:id` | delete a meal |
 
 ## Notes & ideas

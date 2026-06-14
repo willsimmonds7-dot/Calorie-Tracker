@@ -237,45 +237,57 @@ app.get("/api/daily", async (req, res) => {
   }
 });
 
-// POST /api/energy -> upsert a day's burned energy (from Apple Health via Shortcut)
-// Body JSON: { date?: 'YYYY-MM-DD', active?: number, resting?: number, total?: number }
-app.post("/api/energy", async (req, res) => {
+// Energy ingest (from Apple Health via a Shortcut).
+// Accepts BOTH GET (query params) and POST (JSON body), because the iOS
+// Shortcuts app can't reliably POST through some CDNs but GET works fine.
+// Params: date?='YYYY-MM-DD', active?, resting?, total?  (numbers)
+// Auth: Authorization: Bearer <INGEST_TOKEN>  OR  ?token=<INGEST_TOKEN>
+function energyAuthorized(req) {
+  if (!INGEST_TOKEN) return true;
+  const auth = req.get("authorization") || "";
+  let token = auth.replace(/^Bearer\s+/i, "").trim();
+  if (!token) token = (req.query.token || "").toString();
+  return token === INGEST_TOKEN;
+}
+
+async function ingestEnergy(src) {
+  const day = (src.date && /^\d{4}-\d{2}-\d{2}$/.test(src.date)) ? src.date : localToday();
+  let active = Number(src.active);
+  let resting = Number(src.resting);
+  const total = Number(src.total);
+  // If only a single total was sent, store it whole in active_kcal.
+  if ((!Number.isFinite(active) && !Number.isFinite(resting)) && Number.isFinite(total)) {
+    active = total;
+    resting = 0;
+  }
+  active = Number.isFinite(active) ? active : 0;
+  resting = Number.isFinite(resting) ? resting : 0;
+
+  await pool.query(
+    `INSERT INTO daily_energy (day, active_kcal, resting_kcal, updated_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (day) DO UPDATE
+       SET active_kcal = EXCLUDED.active_kcal,
+           resting_kcal = EXCLUDED.resting_kcal,
+           updated_at = now()`,
+    [day, active, resting]
+  );
+  return { ok: true, day, active, resting, burned: active + resting };
+}
+
+async function handleEnergy(req, res, src) {
   try {
-    if (INGEST_TOKEN) {
-      const auth = req.get("authorization") || "";
-      const token = auth.replace(/^Bearer\s+/i, "").trim();
-      if (token !== INGEST_TOKEN) return res.status(401).json({ error: "Unauthorized" });
-    }
-
-    const b = req.body || {};
-    const day = (b.date && /^\d{4}-\d{2}-\d{2}$/.test(b.date)) ? b.date : localToday();
-
-    let active = Number(b.active);
-    let resting = Number(b.resting);
-    const total = Number(b.total);
-    // If only a single total was sent, store it whole in active_kcal.
-    if ((!Number.isFinite(active) && !Number.isFinite(resting)) && Number.isFinite(total)) {
-      active = total;
-      resting = 0;
-    }
-    active = Number.isFinite(active) ? active : 0;
-    resting = Number.isFinite(resting) ? resting : 0;
-
-    await pool.query(
-      `INSERT INTO daily_energy (day, active_kcal, resting_kcal, updated_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (day) DO UPDATE
-         SET active_kcal = EXCLUDED.active_kcal,
-             resting_kcal = EXCLUDED.resting_kcal,
-             updated_at = now()`,
-      [day, active, resting]
-    );
-    res.json({ ok: true, day, active, resting, burned: active + resting });
+    if (!energyAuthorized(req)) return res.status(401).json({ error: "Unauthorized" });
+    res.set("Cache-Control", "no-store");
+    res.json(await ingestEnergy(src));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
-});
+}
+
+app.get("/api/energy", (req, res) => handleEnergy(req, res, req.query || {}));
+app.post("/api/energy", (req, res) => handleEnergy(req, res, req.body || {}));
 
 // DELETE /api/meals/:id
 app.delete("/api/meals/:id", async (req, res) => {
