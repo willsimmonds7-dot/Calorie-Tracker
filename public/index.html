@@ -27,15 +27,22 @@
     </div>
   </section>
 
-  <!-- optional context to help the AI (hidden fillings, portion size, etc.) -->
-  <input type="text" id="note" class="note-input"
-         placeholder="Optional: add context, e.g. 'chicken & mayo inside the wrap'" />
-
   <!-- no capture attribute => iOS offers both Take Photo and Photo Library -->
   <label class="snap-btn" id="snapBtn">
     <input type="file" id="photo" accept="image/*" hidden />
     <span>Take or choose a photo</span>
   </label>
+
+  <!-- staging step: review photo, add an optional note, then confirm -->
+  <section class="card stage hidden" id="stage">
+    <img id="stagePreview" class="stage-img" alt="your meal" />
+    <input type="text" id="note" class="note-input"
+           placeholder="Optional: add context, e.g. 'chicken & mayo inside the wrap'" />
+    <div class="stage-actions">
+      <button type="button" id="cancelBtn" class="btn-secondary">Retake</button>
+      <button type="button" id="confirmBtn" class="btn-primary">Confirm &amp; analyze</button>
+    </div>
+  </section>
 
   <section class="card result hidden" id="result">
     <img id="preview" alt="meal" />

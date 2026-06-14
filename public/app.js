@@ -2,24 +2,50 @@ const $ = (id) => document.getElementById(id);
 
 const photoInput = $("photo");
 const noteInput = $("note");
+const stageCard = $("stage");
+const stagePreview = $("stagePreview");
+const confirmBtn = $("confirmBtn");
+const cancelBtn = $("cancelBtn");
 const resultCard = $("result");
 const preview = $("preview");
 const statusEl = $("status");
 const fields = $("fields");
 
-photoInput.addEventListener("change", async (e) => {
+let selectedFile = null;
+
+// Step 1: pick/take a photo -> show the staging step (no analysis yet)
+photoInput.addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  selectedFile = file;
 
-  // show local preview immediately
+  stagePreview.src = URL.createObjectURL(file);
+  if (noteInput) noteInput.value = "";
+  resultCard.classList.add("hidden");
+  stageCard.classList.remove("hidden");
+  photoInput.value = ""; // allow re-picking the same file later
+  stageCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+
+// Cancel / retake
+cancelBtn.addEventListener("click", () => {
+  selectedFile = null;
+  stageCard.classList.add("hidden");
+});
+
+// Step 2: confirm -> send photo + optional note for analysis
+confirmBtn.addEventListener("click", async () => {
+  if (!selectedFile) return;
+
+  stageCard.classList.add("hidden");
   resultCard.classList.remove("hidden");
   fields.classList.add("hidden");
-  preview.src = URL.createObjectURL(file);
+  preview.src = stagePreview.src;
   statusEl.classList.remove("error");
   statusEl.innerHTML = '<span class="spinner"></span>Analyzing your meal…';
 
   const form = new FormData();
-  form.append("photo", file);
+  form.append("photo", selectedFile);
   const note = (noteInput?.value || "").trim();
   if (note) form.append("note", note);
 
@@ -44,8 +70,8 @@ photoInput.addEventListener("change", async (e) => {
     statusEl.classList.add("error");
     statusEl.textContent = "⚠️ " + err.message;
   } finally {
-    photoInput.value = ""; // allow re-taking the same photo
-    if (noteInput) noteInput.value = ""; // clear the note for the next meal
+    selectedFile = null;
+    if (noteInput) noteInput.value = "";
   }
 });
 

@@ -1,6 +1,6 @@
 // Minimal service worker so the app is installable to the home screen.
 // We intentionally do NOT cache API calls so estimates and history stay fresh.
-const CACHE = "caloriesnap-v3";
+const CACHE = "caloriesnap-v4";
 const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
