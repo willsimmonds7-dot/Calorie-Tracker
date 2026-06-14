@@ -27,10 +27,14 @@
     </div>
   </section>
 
-  <!-- camera capture: opens the camera on iPhone; gallery as fallback -->
+  <!-- optional context to help the AI (hidden fillings, portion size, etc.) -->
+  <input type="text" id="note" class="note-input"
+         placeholder="Optional: add context, e.g. 'chicken & mayo inside the wrap'" />
+
+  <!-- no capture attribute => iOS offers both Take Photo and Photo Library -->
   <label class="snap-btn" id="snapBtn">
-    <input type="file" id="photo" accept="image/*" capture="environment" hidden />
-    <span>Take / choose a photo</span>
+    <input type="file" id="photo" accept="image/*" hidden />
+    <span>Take or choose a photo</span>
   </label>
 
   <section class="card result hidden" id="result">

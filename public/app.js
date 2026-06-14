@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 
 const photoInput = $("photo");
+const noteInput = $("note");
 const resultCard = $("result");
 const preview = $("preview");
 const statusEl = $("status");
@@ -19,6 +20,8 @@ photoInput.addEventListener("change", async (e) => {
 
   const form = new FormData();
   form.append("photo", file);
+  const note = (noteInput?.value || "").trim();
+  if (note) form.append("note", note);
 
   try {
     const resp = await fetch("/api/analyze", { method: "POST", body: form });
@@ -42,6 +45,7 @@ photoInput.addEventListener("change", async (e) => {
     statusEl.textContent = "⚠️ " + err.message;
   } finally {
     photoInput.value = ""; // allow re-taking the same photo
+    if (noteInput) noteInput.value = ""; // clear the note for the next meal
   }
 });
 

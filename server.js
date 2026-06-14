@@ -50,10 +50,14 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // Ask OpenAI to estimate calories + macros from an image.
-async function estimateFromImage(base64DataUrl) {
+async function estimateFromImage(base64DataUrl, note = "") {
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not set. Add it to .env (local) or your host's env vars.");
   }
+
+  const userText = note
+    ? `Estimate the calories and macros for this meal. Context from the user (use it, especially for things not visible in the photo such as hidden fillings, sauces, cooking method, or portion size): ${note}`
+    : "Estimate the calories and macros for this meal.";
 
   const body = {
     model: OPENAI_MODEL,
@@ -70,7 +74,7 @@ async function estimateFromImage(base64DataUrl) {
       {
         role: "user",
         content: [
-          { type: "text", text: "Estimate the calories and macros for this meal." },
+          { type: "text", text: userText },
           { type: "image_url", image_url: { url: base64DataUrl } },
         ],
       },
@@ -119,7 +123,8 @@ app.post("/api/analyze", upload.single("photo"), async (req, res) => {
     const mime = req.file.mimetype || "image/jpeg";
     const dataUrl = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
 
-    const est = await estimateFromImage(dataUrl);
+    const note = (req.body?.note || "").toString().slice(0, 500);
+    const est = await estimateFromImage(dataUrl, note);
 
     const { rows } = await pool.query(
       `INSERT INTO meals (description, calories, protein_g, carbs_g, fat_g)

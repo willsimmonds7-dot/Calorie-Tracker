@@ -34,6 +34,19 @@ h1 { margin: 0; font-size: 1.7rem; }
 .today-macros { display: flex; flex-direction: column; gap: 4px; text-align: right; font-size: 0.9rem; color: var(--muted); }
 .today-macros b { color: var(--text); }
 
+.note-input {
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--card2);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.95rem;
+  margin: 16px 0 10px;
+}
+.note-input::placeholder { color: var(--muted); }
+.note-input:focus { outline: none; border-color: var(--accent); }
+
 .snap-btn {
   display: block;
   background: linear-gradient(135deg, var(--accent), var(--accent2));
