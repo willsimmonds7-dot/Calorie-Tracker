@@ -1,0 +1,23 @@
+# Render Blueprint — deploys CalorieSnap as a FREE web service.
+# Data lives in a free Supabase Postgres database (set DATABASE_URL below),
+# so nothing needs a persistent disk. Photos are not stored.
+# Note: free web services sleep after ~15 min idle; the first request then
+# takes ~30-60s to wake up.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: caloriesnap
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: TZ_NAME
+        value: Europe/Amsterdam
+      - key: OPENAI_API_KEY
+        sync: false   # Render will prompt you to paste this secret
+      - key: DATABASE_URL
+        sync: false   # paste your Supabase connection string (URI)

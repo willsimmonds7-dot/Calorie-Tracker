@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon-180.png" />
+  <title>CalorieSnap</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>📸 CalorieSnap</h1>
+    <p class="sub">Snap your meal, log the macros.</p>
+  </header>
+
+  <section class="card today" id="today">
+    <div class="today-cal"><span id="t-cal">0</span><small>kcal today</small></div>
+    <div class="today-macros">
+      <span>P <b id="t-p">0</b>g</span>
+      <span>C <b id="t-c">0</b>g</span>
+      <span>F <b id="t-f">0</b>g</span>
+      <span><b id="t-meals">0</b> meals</span>
+    </div>
+  </section>
+
+  <!-- camera capture: opens the camera on iPhone; gallery as fallback -->
+  <label class="snap-btn" id="snapBtn">
+    <input type="file" id="photo" accept="image/*" capture="environment" hidden />
+    <span>Take / choose a photo</span>
+  </label>
+
+  <section class="card result hidden" id="result">
+    <img id="preview" alt="meal" />
+    <div class="result-body">
+      <div class="status" id="status">Analyzing…</div>
+      <div class="result-fields hidden" id="fields">
+        <h3 id="r-desc"></h3>
+        <div class="cal"><span id="r-cal">0</span> kcal</div>
+        <div class="macros">
+          <span>Protein <b id="r-p">0</b>g</span>
+          <span>Carbs <b id="r-c">0</b>g</span>
+          <span>Fat <b id="r-f">0</b>g</span>
+        </div>
+        <small class="hint">Saved automatically with a timestamp.</small>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="hist-title">History</h2>
+    <div id="history"></div>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>
