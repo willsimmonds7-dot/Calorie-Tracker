@@ -177,6 +177,31 @@ app.get("/api/summary", async (req, res) => {
   }
 });
 
+// GET /api/daily?days=N -> per-day totals for the last N days (local time zone)
+app.get("/api/daily", async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 14, 1), 90);
+    const { rows } = await pool.query(
+      `SELECT to_char((created_at AT TIME ZONE $1)::date, 'YYYY-MM-DD') AS day,
+              COUNT(*)::int               AS meals,
+              COALESCE(SUM(calories),0)   AS calories,
+              COALESCE(SUM(protein_g),0)  AS protein_g,
+              COALESCE(SUM(carbs_g),0)    AS carbs_g,
+              COALESCE(SUM(fat_g),0)      AS fat_g
+       FROM meals
+       WHERE created_at >= (date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)
+                           - (($2 || ' days')::interval)
+       GROUP BY day
+       ORDER BY day`,
+      [TZ_NAME, days - 1]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/meals/:id
 app.delete("/api/meals/:id", async (req, res) => {
   try {

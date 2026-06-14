@@ -66,6 +66,7 @@ confirmBtn.addEventListener("click", async () => {
 
     loadSummary();
     loadHistory();
+    loadTrends();
   } catch (err) {
     statusEl.classList.add("error");
     statusEl.textContent = "⚠️ " + err.message;
@@ -84,6 +85,80 @@ async function loadSummary() {
     $("t-f").textContent = Math.round(s.fat_g);
     $("t-meals").textContent = s.meals;
   } catch {}
+}
+
+async function loadTrends() {
+  const chart = $("tr-chart");
+  try {
+    const rows = await (await fetch("/api/daily?days=14")).json();
+    const byDay = {};
+    for (const r of rows) byDay[r.day] = r;
+
+    // build the last 14 local days (oldest -> newest)
+    const days = [];
+    const now = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const key = d.toLocaleDateString("en-CA");
+      const r = byDay[key];
+      days.push({
+        date: d, key,
+        cal: r ? Math.round(r.calories) : 0,
+        p: r ? r.protein_g : 0, c: r ? r.carbs_g : 0, f: r ? r.fat_g : 0,
+        meals: r ? r.meals : 0,
+      });
+    }
+
+    const avgOf = (arr) => {
+      const logged = arr.filter((d) => d.meals > 0);
+      if (!logged.length) return null;
+      return Math.round(logged.reduce((s, d) => s + d.cal, 0) / logged.length);
+    };
+    const last7 = days.slice(7);
+    const prev7 = days.slice(0, 7);
+    const avg7 = avgOf(last7);
+    const avgPrev = avgOf(prev7);
+
+    $("tr-avg").textContent = avg7 == null ? "–" : avg7;
+
+    // trend chip vs previous 7 days
+    const chip = $("tr-chip");
+    if (avg7 != null && avgPrev) {
+      const pct = Math.round(((avg7 - avgPrev) / avgPrev) * 100);
+      const up = pct > 0;
+      chip.textContent = `${up ? "▲" : pct < 0 ? "▼" : "■"} ${Math.abs(pct)}% vs prev 7d`;
+      chip.className = "trend-chip " + (pct === 0 ? "flat" : up ? "up" : "down");
+    } else {
+      chip.textContent = "";
+      chip.className = "trend-chip";
+    }
+
+    // bar chart (last 14 days)
+    const max = Math.max(1, ...days.map((d) => d.cal));
+    chart.innerHTML = days
+      .map((d, i) => {
+        const h = Math.round((d.cal / max) * 100);
+        const isToday = i === days.length - 1;
+        const lbl = d.date.toLocaleDateString([], { weekday: "short" }).slice(0, 1);
+        const full = d.date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+        return `<div class="bar-col${isToday ? " today" : ""}" title="${full}: ${d.cal} kcal · ${d.meals} meal${d.meals === 1 ? "" : "s"}">
+          <div class="bar-wrap"><div class="bar" style="height:${h}%"></div></div>
+          <div class="bar-lbl">${lbl}</div>
+        </div>`;
+      })
+      .join("");
+
+    // footer: average macros over last 7 logged days
+    const loggedLast7 = last7.filter((d) => d.meals > 0);
+    if (loggedLast7.length) {
+      const a = (k) => Math.round(loggedLast7.reduce((s, d) => s + d[k], 0) / loggedLast7.length);
+      $("tr-foot").textContent = `Avg macros/day (last 7 logged): P ${a("p")}g · C ${a("c")}g · F ${a("f")}g`;
+    } else {
+      $("tr-foot").textContent = "Log a few meals to see your weekly trend.";
+    }
+  } catch {
+    chart.innerHTML = '<div class="empty error">Could not load trends.</div>';
+  }
 }
 
 function fmtTime(iso) {
@@ -164,6 +239,7 @@ async function loadHistory() {
         await fetch("/api/meals/" + id, { method: "DELETE" });
         loadSummary();
         loadHistory();
+        loadTrends();
       });
     });
   } catch {
@@ -184,3 +260,4 @@ if ("serviceWorker" in navigator) {
 
 loadSummary();
 loadHistory();
+loadTrends();
