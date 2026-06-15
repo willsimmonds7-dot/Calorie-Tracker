@@ -88,6 +88,22 @@
     <div id="history"></div>
   </section>
 
+  <!-- edit / re-analyse modal -->
+  <div class="modal hidden" id="editModal">
+    <div class="modal-card">
+      <h3 id="em-desc">Meal</h3>
+      <div class="em-vals" id="em-vals"></div>
+      <label class="em-label" for="em-note">Add a comment to refine the estimate</label>
+      <textarea id="em-note" class="note-input"
+                placeholder="e.g. 'larger portion, cooked in butter, with dressing'"></textarea>
+      <div class="em-status" id="em-status"></div>
+      <div class="em-actions">
+        <button type="button" id="em-cancel" class="btn-secondary">Close</button>
+        <button type="button" id="em-reanalyse" class="btn-primary">Re-analyse</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/app.js"></script>
 </body>
 </html>

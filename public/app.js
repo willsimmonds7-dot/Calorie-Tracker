@@ -1,5 +1,9 @@
 const $ = (id) => document.getElementById(id);
 
+const MEAL_MIN_KCAL = 250; // entries above this count as a "meal"
+let mealsById = {};
+let editingId = null;
+
 const photoInput = $("photo");
 const noteInput = $("note");
 const stageCard = $("stage");
@@ -127,8 +131,9 @@ async function loadTrends() {
       });
     }
 
+    // "logged day" = any day you ate something (calories > 0), incl. snack-only days
     const avgOf = (arr) => {
-      const logged = arr.filter((d) => d.meals > 0);
+      const logged = arr.filter((d) => d.cal > 0);
       if (!logged.length) return null;
       return Math.round(logged.reduce((s, d) => s + d.cal, 0) / logged.length);
     };
@@ -167,7 +172,7 @@ async function loadTrends() {
       .join("");
 
     // footer: average macros + average net (deficit/surplus) over last 7 logged days
-    const loggedLast7 = last7.filter((d) => d.meals > 0);
+    const loggedLast7 = last7.filter((d) => d.cal > 0);
     const foot = $("tr-foot");
     if (loggedLast7.length) {
       const a = (k) => Math.round(loggedLast7.reduce((s, d) => s + d[k], 0) / loggedLast7.length);
@@ -220,13 +225,15 @@ async function loadHistory() {
       return;
     }
 
+    mealsById = {};
     // group meals (already newest-first) by local day
     const groups = [];
     const byKey = {};
     for (const m of meals) {
+      mealsById[m.id] = m;
       const k = dayKey(m.created_at);
       if (!byKey[k]) {
-        byKey[k] = { key: k, meals: [], cal: 0, p: 0, c: 0, f: 0 };
+        byKey[k] = { key: k, meals: [], cal: 0, p: 0, c: 0, f: 0, mealCount: 0 };
         groups.push(byKey[k]);
       }
       const g = byKey[k];
@@ -235,6 +242,7 @@ async function loadHistory() {
       g.p += m.protein_g || 0;
       g.c += m.carbs_g || 0;
       g.f += m.fat_g || 0;
+      if ((m.calories || 0) > MEAL_MIN_KCAL) g.mealCount += 1;
     }
 
     wrap.innerHTML = groups
@@ -245,7 +253,7 @@ async function loadHistory() {
           <span class="day-name">${dayLabel(g.key)}</span>
           <span class="day-total">${Math.round(g.cal)} kcal</span>
         </div>
-        <div class="day-macros">P ${Math.round(g.p)}g · C ${Math.round(g.c)}g · F ${Math.round(g.f)}g · ${g.meals.length} meal${g.meals.length > 1 ? "s" : ""}</div>
+        <div class="day-macros">P ${Math.round(g.p)}g · C ${Math.round(g.c)}g · F ${Math.round(g.f)}g · ${g.mealCount} meal${g.mealCount === 1 ? "" : "s"}</div>
         ${g.meals
           .map(
             (m) => `
@@ -263,8 +271,16 @@ async function loadHistory() {
       )
       .join("");
 
+    wrap.querySelectorAll(".meal").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".del")) return; // let delete handle itself
+        openEdit(row.dataset.id);
+      });
+    });
+
     wrap.querySelectorAll(".del").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
         const id = e.target.closest(".meal").dataset.id;
         await fetch("/api/meals/" + id, { method: "DELETE" });
         loadSummary();
@@ -274,6 +290,59 @@ async function loadHistory() {
     });
   } catch {
     wrap.innerHTML = '<div class="empty error">Could not load history.</div>';
+  }
+}
+
+// ---- edit / re-analyse modal ----
+function renderVals(m) {
+  return `<span class="big">${Math.round(m.calories)}</span> kcal · P ${Math.round(m.protein_g)}g · C ${Math.round(m.carbs_g)}g · F ${Math.round(m.fat_g)}g`;
+}
+
+function openEdit(id) {
+  const m = mealsById[id];
+  if (!m) return;
+  editingId = id;
+  $("em-desc").textContent = m.description || "Meal";
+  $("em-vals").innerHTML = renderVals(m);
+  $("em-note").value = m.note || "";
+  const st = $("em-status");
+  st.textContent = "";
+  st.className = "em-status";
+  $("editModal").classList.remove("hidden");
+}
+
+function closeEdit() {
+  $("editModal").classList.add("hidden");
+  editingId = null;
+}
+
+async function reanalyse() {
+  if (!editingId) return;
+  const note = ($("em-note").value || "").trim();
+  const st = $("em-status");
+  st.className = "em-status";
+  st.innerHTML = '<span class="spinner"></span>Re-analysing…';
+  try {
+    const resp = await fetch(`/api/meals/${editingId}/reanalyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Re-analysis failed");
+
+    mealsById[editingId] = { ...mealsById[editingId], ...data };
+    $("em-desc").textContent = data.description || "Meal";
+    $("em-vals").innerHTML = renderVals(data);
+    st.textContent = "Updated ✓";
+    st.className = "em-status good";
+
+    loadSummary();
+    loadHistory();
+    loadTrends();
+  } catch (err) {
+    st.textContent = "⚠️ " + err.message;
+    st.className = "em-status error";
   }
 }
 
@@ -287,6 +356,13 @@ function escapeHtml(s) {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
+
+// modal wiring
+$("em-cancel").addEventListener("click", closeEdit);
+$("em-reanalyse").addEventListener("click", reanalyse);
+$("editModal").addEventListener("click", (e) => {
+  if (e.target.id === "editModal") closeEdit(); // tap backdrop to close
+});
 
 loadSummary();
 loadHistory();

@@ -16,6 +16,9 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const TZ_NAME = process.env.TZ_NAME || "Europe/Amsterdam";
 // Optional shared secret to protect the energy-ingest endpoint (recommended).
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
+// Entries above this many kcal count as a "meal"; smaller ones (coffee, fruit)
+// are still logged and counted in totals, just not in the meal tally.
+const MEAL_MIN_KCAL = Number(process.env.MEAL_MIN_KCAL) || 250;
 
 // --- database (Postgres, e.g. free Supabase) ---
 if (!DATABASE_URL) {
@@ -39,6 +42,8 @@ async function initDb() {
       fat_g       DOUBLE PRECISION
     );
   `);
+  // Persist the user's context note (added on capture or via re-analyse).
+  await pool.query(`ALTER TABLE meals ADD COLUMN IF NOT EXISTS note TEXT;`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS daily_energy (
       day          TEXT PRIMARY KEY,            -- 'YYYY-MM-DD' local date
@@ -64,35 +69,23 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Ask OpenAI to estimate calories + macros from an image.
-async function estimateFromImage(base64DataUrl, note = "") {
+const NUTRITION_SYSTEM_PROMPT =
+  "You are a nutrition estimator. Estimate the meal's nutrition for the full " +
+  "portion. Respond ONLY with JSON matching this shape: " +
+  '{"description": string, "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number}. ' +
+  "If you cannot tell, make your best reasonable estimate. Do not include any text outside the JSON.";
+
+// Shared OpenAI call: takes the user message content, returns parsed estimate.
+async function runEstimate(userContent) {
   if (!OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not set. Add it to .env (local) or your host's env vars.");
   }
 
-  const userText = note
-    ? `Estimate the calories and macros for this meal. Context from the user (use it, especially for things not visible in the photo such as hidden fillings, sauces, cooking method, or portion size): ${note}`
-    : "Estimate the calories and macros for this meal.";
-
   const body = {
     model: OPENAI_MODEL,
     messages: [
-      {
-        role: "system",
-        content:
-          "You are a nutrition estimator. Look at the food photo and estimate the meal's " +
-          "nutrition for the full portion shown. Respond ONLY with JSON matching this shape: " +
-          '{"description": string, "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number}. ' +
-          "Numbers are for the whole meal in the image. If you cannot see food, set calories to 0 and " +
-          'describe what you see. Do not include any text outside the JSON.',
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userText },
-          { type: "image_url", image_url: { url: base64DataUrl } },
-        ],
-      },
+      { role: "system", content: NUTRITION_SYSTEM_PROMPT },
+      { role: "user", content: userContent },
     ],
     response_format: { type: "json_object" },
     max_tokens: 400,
@@ -130,6 +123,27 @@ async function estimateFromImage(base64DataUrl, note = "") {
   };
 }
 
+// Estimate from a photo (+ optional note).
+async function estimateFromImage(base64DataUrl, note = "") {
+  const text = note
+    ? `Estimate the calories and macros for this meal. Context from the user (use it, especially for things not visible in the photo such as hidden fillings, sauces, cooking method, or portion size): ${note}`
+    : "Estimate the calories and macros for this meal.";
+  return runEstimate([
+    { type: "text", text },
+    { type: "image_url", image_url: { url: base64DataUrl } },
+  ]);
+}
+
+// Re-estimate from a saved description + a user comment (no photo available).
+async function estimateFromText(description, note = "") {
+  const text =
+    `Re-estimate the calories and macros for this meal.\n` +
+    `Previously logged as: ${description}\n` +
+    (note ? `User correction / extra context (weigh this heavily): ${note}\n` : "") +
+    `Give an updated description that reflects the correction.`;
+  return runEstimate(text);
+}
+
 // POST /api/analyze  -> estimate macros AND save the meal (photo is NOT stored).
 app.post("/api/analyze", upload.single("photo"), async (req, res) => {
   try {
@@ -142,13 +156,13 @@ app.post("/api/analyze", upload.single("photo"), async (req, res) => {
     const est = await estimateFromImage(dataUrl, note);
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (description, calories, protein_g, carbs_g, fat_g)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO meals (description, calories, protein_g, carbs_g, fat_g, note)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, created_at`,
-      [est.description, est.calories, est.protein_g, est.carbs_g, est.fat_g]
+      [est.description, est.calories, est.protein_g, est.carbs_g, est.fat_g, note || null]
     );
 
-    res.json({ id: rows[0].id, created_at: rows[0].created_at, ...est });
+    res.json({ id: rows[0].id, created_at: rows[0].created_at, note, ...est });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -159,7 +173,7 @@ app.post("/api/analyze", upload.single("photo"), async (req, res) => {
 app.get("/api/meals", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, created_at, description, calories, protein_g, carbs_g, fat_g
+      `SELECT id, created_at, description, calories, protein_g, carbs_g, fat_g, note
        FROM meals ORDER BY created_at DESC LIMIT 500`
     );
     res.json(rows);
@@ -175,14 +189,15 @@ app.get("/api/summary", async (req, res) => {
     // Start of "today" in TZ_NAME, expressed as an absolute instant (timestamptz).
     const { rows } = await pool.query(
       `SELECT
-         COUNT(*)::int                AS meals,
+         COALESCE(SUM(CASE WHEN calories > $2 THEN 1 ELSE 0 END),0)::int AS meals,
+         COUNT(*)::int                AS entries,
          COALESCE(SUM(calories),0)    AS calories,
          COALESCE(SUM(protein_g),0)   AS protein_g,
          COALESCE(SUM(carbs_g),0)     AS carbs_g,
          COALESCE(SUM(fat_g),0)       AS fat_g
        FROM meals
        WHERE created_at >= (date_trunc('day', now() AT TIME ZONE $1) AT TIME ZONE $1)`,
-      [TZ_NAME]
+      [TZ_NAME, MEAL_MIN_KCAL]
     );
     const today = localToday();
     const e = await pool.query(
@@ -205,7 +220,8 @@ app.get("/api/daily", async (req, res) => {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 14, 1), 90);
     const meals = await pool.query(
       `SELECT to_char((created_at AT TIME ZONE $1)::date, 'YYYY-MM-DD') AS day,
-              COUNT(*)::int               AS meals,
+              COALESCE(SUM(CASE WHEN calories > $3 THEN 1 ELSE 0 END),0)::int AS meals,
+              COUNT(*)::int               AS entries,
               COALESCE(SUM(calories),0)   AS calories,
               COALESCE(SUM(protein_g),0)  AS protein_g,
               COALESCE(SUM(carbs_g),0)    AS carbs_g,
@@ -215,7 +231,7 @@ app.get("/api/daily", async (req, res) => {
                            - (($2 || ' days')::interval)
        GROUP BY day
        ORDER BY day`,
-      [TZ_NAME, days - 1]
+      [TZ_NAME, days - 1, MEAL_MIN_KCAL]
     );
     const energy = await pool.query(
       `SELECT day, active_kcal, resting_kcal FROM daily_energy
@@ -288,6 +304,33 @@ async function handleEnergy(req, res, src) {
 
 app.get("/api/energy", (req, res) => handleEnergy(req, res, req.query || {}));
 app.post("/api/energy", (req, res) => handleEnergy(req, res, req.body || {}));
+
+// POST /api/meals/:id/reanalyze -> re-estimate from description + a user comment
+// Body JSON: { note: string }. (No photo is stored, so this is text-based.)
+app.post("/api/meals/:id/reanalyze", async (req, res) => {
+  try {
+    const note = (req.body?.note || "").toString().slice(0, 500);
+    const existing = await pool.query(
+      `SELECT description FROM meals WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!existing.rows.length) return res.status(404).json({ error: "Meal not found." });
+
+    const est = await estimateFromText(existing.rows[0].description, note);
+
+    const { rows } = await pool.query(
+      `UPDATE meals
+         SET description = $1, calories = $2, protein_g = $3, carbs_g = $4, fat_g = $5, note = $6
+       WHERE id = $7
+       RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
+      [est.description, est.calories, est.protein_g, est.carbs_g, est.fat_g, note || null, req.params.id]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // DELETE /api/meals/:id
 app.delete("/api/meals/:id", async (req, res) => {
