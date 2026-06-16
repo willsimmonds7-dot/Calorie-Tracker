@@ -54,9 +54,24 @@ async function initDb() {
   `);
 }
 
-// today's date (YYYY-MM-DD) in the configured time zone
+// local date (YYYY-MM-DD) in the configured time zone, offset by N days ago
+function localDate(daysAgo = 0) {
+  const d = new Date(Date.now() - daysAgo * 86400000);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ_NAME }).format(d);
+}
 function localToday() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ_NAME }).format(new Date());
+  return localDate(0);
+}
+
+// Resolve which day a payload targets: explicit YYYY-MM-DD, or the keywords
+// "yesterday"/"today" (computed server-side so the client needn't format dates).
+function resolveDay(src) {
+  if (src.date && /^\d{4}-\d{2}-\d{2}$/.test(src.date)) return src.date;
+  const kw = (src.day || "").toString().trim().toLowerCase();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(kw)) return kw;
+  if (kw === "yesterday") return localDate(1);
+  if (kw === "today" || kw === "") return localDate(0);
+  return localDate(0);
 }
 
 // Photo is parsed in memory, sent to the AI, then discarded (nothing stored).
@@ -267,7 +282,7 @@ function energyAuthorized(req) {
 }
 
 async function ingestEnergy(src) {
-  const day = (src.date && /^\d{4}-\d{2}-\d{2}$/.test(src.date)) ? src.date : localToday();
+  const day = resolveDay(src);
   let active = Number(src.active);
   let resting = Number(src.resting);
   const total = Number(src.total);
