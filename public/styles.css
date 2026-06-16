@@ -128,6 +128,8 @@ h1 { margin: 0; font-size: 1.7rem; }
 .bar-col.today .bar { background: var(--accent); }
 .bar-lbl { font-size: 0.62rem; color: var(--muted); margin-top: 4px; }
 .trend-foot { color: var(--muted); font-size: 0.8rem; margin-top: 12px; }
+.trend-burn { color: var(--muted); font-size: 0.8rem; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--card2); }
+.trend-burn b { color: var(--text); }
 
 .day-group { margin-bottom: 18px; }
 .day-head {

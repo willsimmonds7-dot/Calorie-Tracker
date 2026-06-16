@@ -111,14 +111,15 @@ async function loadSummary() {
 async function loadTrends() {
   const chart = $("tr-chart");
   try {
-    const rows = await (await fetch("/api/daily?days=14")).json();
+    // fetch 15 days so we can show 14 bars AND average the 14 completed days
+    const rows = await (await fetch("/api/daily?days=15")).json();
     const byDay = {};
     for (const r of rows) byDay[r.day] = r;
 
-    // build the last 14 local days (oldest -> newest)
+    // build the last 15 local days (oldest -> newest); index 14 = today
     const days = [];
     const now = new Date();
-    for (let i = 13; i >= 0; i--) {
+    for (let i = 14; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       const key = d.toLocaleDateString("en-CA");
       const r = byDay[key];
@@ -131,20 +132,26 @@ async function loadTrends() {
       });
     }
 
-    // "logged day" = any day you ate something (calories > 0), incl. snack-only days
+    const today = days[days.length - 1];
+    const yesterday = days[days.length - 2];
+    // Completed days only (exclude today) for all averages, so a partial day
+    // doesn't drag the numbers down.
+    const prior = days.slice(0, 14);     // 14 completed days before today
+    const last7 = prior.slice(7);        // the 7 most recent completed days
+    const prev7 = prior.slice(0, 7);     // the 7 before those
+
+    // "logged day" = a completed day you ate something (calories > 0)
     const avgOf = (arr) => {
       const logged = arr.filter((d) => d.cal > 0);
       if (!logged.length) return null;
       return Math.round(logged.reduce((s, d) => s + d.cal, 0) / logged.length);
     };
-    const last7 = days.slice(7);
-    const prev7 = days.slice(0, 7);
     const avg7 = avgOf(last7);
     const avgPrev = avgOf(prev7);
 
     $("tr-avg").textContent = avg7 == null ? "–" : avg7;
 
-    // trend chip vs previous 7 days
+    // trend chip vs the previous 7 completed days
     const chip = $("tr-chip");
     if (avg7 != null && avgPrev) {
       const pct = Math.round(((avg7 - avgPrev) / avgPrev) * 100);
@@ -156,12 +163,13 @@ async function loadTrends() {
       chip.className = "trend-chip";
     }
 
-    // bar chart (last 14 days)
-    const max = Math.max(1, ...days.map((d) => d.cal));
-    chart.innerHTML = days
+    // bar chart: last 14 days incl. today (today highlighted)
+    const chartDays = days.slice(1);
+    const max = Math.max(1, ...chartDays.map((d) => d.cal));
+    chart.innerHTML = chartDays
       .map((d, i) => {
         const h = Math.round((d.cal / max) * 100);
-        const isToday = i === days.length - 1;
+        const isToday = i === chartDays.length - 1;
         const lbl = d.date.toLocaleDateString([], { weekday: "short" }).slice(0, 1);
         const full = d.date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
         return `<div class="bar-col${isToday ? " today" : ""}" title="${full}: ${d.cal} kcal · ${d.meals} meal${d.meals === 1 ? "" : "s"}">
@@ -171,12 +179,12 @@ async function loadTrends() {
       })
       .join("");
 
-    // footer: average macros + average net (deficit/surplus) over last 7 logged days
+    // footer: macros + net + burned summary, all over completed days
     const loggedLast7 = last7.filter((d) => d.cal > 0);
     const foot = $("tr-foot");
     if (loggedLast7.length) {
       const a = (k) => Math.round(loggedLast7.reduce((s, d) => s + d[k], 0) / loggedLast7.length);
-      let txt = `Avg macros/day (last 7 logged): P ${a("p")}g · C ${a("c")}g · F ${a("f")}g`;
+      let txt = `Avg macros/day (last 7 days): P ${a("p")}g · C ${a("c")}g · F ${a("f")}g`;
 
       const withBurn = loggedLast7.filter((d) => d.burned != null);
       if (withBurn.length) {
@@ -189,7 +197,24 @@ async function loadTrends() {
       }
       foot.innerHTML = txt;
     } else {
-      foot.textContent = "Log a few meals to see your weekly trend.";
+      foot.textContent = "Log a few full days to see your weekly trend.";
+    }
+
+    // burned summary: yesterday + 7-day average (completed days with watch data)
+    const burnEl = $("tr-burn");
+    if (burnEl) {
+      const burn7 = last7.filter((d) => d.burned != null);
+      const avgBurn = burn7.length
+        ? Math.round(burn7.reduce((s, d) => s + d.burned, 0) / burn7.length)
+        : null;
+      const yBurn = yesterday && yesterday.burned != null ? Math.round(yesterday.burned) : null;
+      if (yBurn != null || avgBurn != null) {
+        burnEl.innerHTML =
+          `Burned yesterday: <b>${yBurn != null ? yBurn : "–"}</b> kcal` +
+          ` · Avg burned (7d): <b>${avgBurn != null ? avgBurn : "–"}</b> kcal/day`;
+      } else {
+        burnEl.textContent = "";
+      }
     }
   } catch {
     chart.innerHTML = '<div class="empty error">Could not load trends.</div>';
