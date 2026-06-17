@@ -84,6 +84,10 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+// Lightweight health check for an uptime pinger to keep the free instance warm.
+// Deliberately does NOT touch the database, so frequent pings cost nothing.
+app.get("/healthz", (req, res) => res.type("text").send("ok"));
+
 const NUTRITION_SYSTEM_PROMPT =
   "You are a nutrition estimator. Estimate the meal's nutrition for the full " +
   "portion. Respond ONLY with JSON matching this shape: " +
