@@ -389,6 +389,21 @@ $("editModal").addEventListener("click", (e) => {
   if (e.target.id === "editModal") closeEdit(); // tap backdrop to close
 });
 
-loadSummary();
-loadHistory();
-loadTrends();
+function refreshAll() {
+  loadSummary();
+  loadHistory();
+  loadTrends();
+}
+
+// Refresh when the app is brought back to the foreground (no need to reopen it)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !editingId) refreshAll();
+});
+window.addEventListener("focus", () => { if (!editingId) refreshAll(); });
+window.addEventListener("pageshow", (e) => { if (e.persisted) refreshAll(); });
+// Light periodic refresh while the app stays open
+setInterval(() => {
+  if (document.visibilityState === "visible" && !editingId) refreshAll();
+}, 60000);
+
+refreshAll();
