@@ -144,8 +144,8 @@ h1 { margin: 0; font-size: 1.7rem; }
 .add-manual:active { transform: scale(0.99); }
 
 .em-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
-.em-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--muted); }
-.em-grid input { background: var(--bg); border: 1px solid var(--card2); color: var(--text); border-radius: 10px; padding: 10px; font-size: 1rem; }
+.em-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: var(--muted); min-width: 0; }
+.em-grid input { width: 100%; min-width: 0; background: var(--bg); border: 1px solid var(--card2); color: var(--text); border-radius: 10px; padding: 10px; font-size: 1rem; }
 .em-grid input:focus { outline: none; border-color: var(--accent); }
 .em-actions { flex-wrap: wrap; }
 .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
