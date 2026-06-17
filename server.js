@@ -52,6 +52,12 @@ async function initDb() {
       updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
 }
 
 // local date (YYYY-MM-DD) in the configured time zone, offset by N days ago
@@ -182,6 +188,90 @@ app.post("/api/analyze", upload.single("photo"), async (req, res) => {
     );
 
     res.json({ id: rows[0].id, created_at: rows[0].created_at, note, ...est });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/meals  -> add a meal manually (e.g. typed from a packet label)
+app.post("/api/meals", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const description = (b.description || "Manual entry").toString().slice(0, 200);
+    const calories = Number(b.calories) || 0;
+    const protein_g = Number(b.protein_g) || 0;
+    const carbs_g = Number(b.carbs_g) || 0;
+    const fat_g = Number(b.fat_g) || 0;
+    const { rows } = await pool.query(
+      `INSERT INTO meals (description, calories, protein_g, carbs_g, fat_g)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
+      [description, calories, protein_g, carbs_g, fat_g]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/meals/:id  -> manually override fields (only those provided)
+app.patch("/api/meals/:id", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const num = (v) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? null : Number(v));
+    const { rows } = await pool.query(
+      `UPDATE meals SET
+         description = COALESCE($1, description),
+         calories    = COALESCE($2, calories),
+         protein_g   = COALESCE($3, protein_g),
+         carbs_g     = COALESCE($4, carbs_g),
+         fat_g       = COALESCE($5, fat_g)
+       WHERE id = $6
+       RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
+      [
+        b.description != null ? String(b.description).slice(0, 200) : null,
+        num(b.calories), num(b.protein_g), num(b.carbs_g), num(b.fat_g),
+        req.params.id,
+      ]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Meal not found." });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET/POST /api/settings -> daily calorie goal
+app.get("/api/settings", async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT key, value FROM settings`);
+    const s = {};
+    for (const r of rows) s[r.key] = r.value;
+    res.json({ daily_goal: s.daily_goal ? Number(s.daily_goal) : null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/settings", async (req, res) => {
+  try {
+    const g = req.body?.daily_goal;
+    if (g === null || g === "" || g === undefined) {
+      await pool.query(`DELETE FROM settings WHERE key = 'daily_goal'`);
+      return res.json({ daily_goal: null });
+    }
+    const n = Math.round(Number(g));
+    if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "Invalid goal." });
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ('daily_goal', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [String(n)]
+    );
+    res.json({ daily_goal: n });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

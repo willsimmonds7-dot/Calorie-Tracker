@@ -32,6 +32,7 @@
       <div class="te-cell"><small>Net</small><b id="t-net">–</b></div>
       <div class="te-state" id="t-state"></div>
     </div>
+    <div class="today-goal" id="t-goal"></div>
   </section>
 
   <!-- no capture attribute => iOS offers both Take Photo and Photo Library -->
@@ -39,6 +40,8 @@
     <input type="file" id="photo" accept="image/*" hidden />
     <span>Take or choose a photo</span>
   </label>
+
+  <button type="button" class="add-manual" id="addManualBtn">✎ Add manually (from a label)</button>
 
   <!-- staging step: review photo, add an optional note, then confirm -->
   <section class="card stage hidden" id="stage">
@@ -81,6 +84,11 @@
       <div class="chart" id="tr-chart"></div>
       <div class="trend-foot" id="tr-foot"></div>
       <div class="trend-burn" id="tr-burn"></div>
+      <div class="goal-row">
+        <label for="goal-input">Daily goal</label>
+        <input id="goal-input" type="number" inputmode="numeric" placeholder="e.g. 2000" />
+        <span>kcal</span>
+      </div>
     </div>
   </section>
 
@@ -89,18 +97,25 @@
     <div id="history"></div>
   </section>
 
-  <!-- edit / re-analyse modal -->
+  <!-- edit / manual / re-analyse modal -->
   <div class="modal hidden" id="editModal">
     <div class="modal-card">
-      <h3 id="em-desc">Meal</h3>
-      <div class="em-vals" id="em-vals"></div>
-      <label class="em-label" for="em-note">Add a comment to refine the estimate</label>
+      <h3 id="em-title">Edit meal</h3>
+      <input id="em-desc-in" class="note-input" placeholder="Description (e.g. Granola bar)" />
+      <div class="em-grid">
+        <label>kcal<input id="em-cal" type="number" inputmode="numeric" /></label>
+        <label>Protein g<input id="em-p" type="number" inputmode="decimal" /></label>
+        <label>Carbs g<input id="em-c" type="number" inputmode="decimal" /></label>
+        <label>Fat g<input id="em-f" type="number" inputmode="decimal" /></label>
+      </div>
+      <label class="em-label" for="em-note" id="em-note-label">Comment (lets the AI re-estimate)</label>
       <textarea id="em-note" class="note-input"
                 placeholder="e.g. 'larger portion, cooked in butter, with dressing'"></textarea>
       <div class="em-status" id="em-status"></div>
       <div class="em-actions">
         <button type="button" id="em-cancel" class="btn-secondary">Close</button>
-        <button type="button" id="em-reanalyse" class="btn-primary">Re-analyse</button>
+        <button type="button" id="em-reanalyse" class="btn-secondary">Re-analyse</button>
+        <button type="button" id="em-save" class="btn-primary">Save</button>
       </div>
     </div>
   </div>

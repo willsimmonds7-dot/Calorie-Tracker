@@ -88,6 +88,7 @@ async function loadSummary() {
     $("t-c").textContent = Math.round(s.carbs_g);
     $("t-f").textContent = Math.round(s.fat_g);
     $("t-meals").textContent = s.meals;
+    updateGoalProgress();
 
     const burnedEl = $("t-burned"), netEl = $("t-net"), stateEl = $("t-state");
     if (s.burned == null) {
@@ -165,19 +166,27 @@ async function loadTrends() {
 
     // bar chart: last 14 days incl. today (today highlighted)
     const chartDays = days.slice(1);
-    const max = Math.max(1, ...chartDays.map((d) => d.cal));
-    chart.innerHTML = chartDays
-      .map((d, i) => {
-        const h = Math.round((d.cal / max) * 100);
-        const isToday = i === chartDays.length - 1;
-        const lbl = d.date.toLocaleDateString([], { weekday: "short" }).slice(0, 1);
-        const full = d.date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
-        return `<div class="bar-col${isToday ? " today" : ""}" title="${full}: ${d.cal} kcal · ${d.meals} meal${d.meals === 1 ? "" : "s"}">
-          <div class="bar-wrap"><div class="bar" style="height:${h}%"></div></div>
+    const max = Math.max(1, dailyGoal || 0, ...chartDays.map((d) => d.cal));
+    // dashed target line at the goal level (relative to the same max)
+    const goalLine =
+      dailyGoal != null
+        ? `<div class="goal-line" style="bottom:${Math.min(100, (dailyGoal / max) * 100)}%" title="Goal ${dailyGoal} kcal"></div>`
+        : "";
+    chart.innerHTML =
+      goalLine +
+      chartDays
+        .map((d, i) => {
+          const h = Math.round((d.cal / max) * 100);
+          const isToday = i === chartDays.length - 1;
+          const over = dailyGoal != null && d.cal > dailyGoal;
+          const lbl = d.date.toLocaleDateString([], { weekday: "short" }).slice(0, 1);
+          const full = d.date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+          return `<div class="bar-col${isToday ? " today" : ""}" title="${full}: ${d.cal} kcal · ${d.meals} meal${d.meals === 1 ? "" : "s"}">
+          <div class="bar-wrap"><div class="bar${over ? " over" : ""}" style="height:${h}%"></div></div>
           <div class="bar-lbl">${lbl}</div>
         </div>`;
-      })
-      .join("");
+        })
+        .join("");
 
     // footer: macros + net + burned summary, all over completed days
     const loggedLast7 = last7.filter((d) => d.cal > 0);
@@ -318,18 +327,34 @@ async function loadHistory() {
   }
 }
 
-// ---- edit / re-analyse modal ----
-function renderVals(m) {
-  return `<span class="big">${Math.round(m.calories)}</span> kcal · P ${Math.round(m.protein_g)}g · C ${Math.round(m.carbs_g)}g · F ${Math.round(m.fat_g)}g`;
+// ---- meal editor modal (edit existing, manual add, or AI re-analyse) ----
+function fillFields(m) {
+  $("em-desc-in").value = m.description || "";
+  $("em-cal").value = m.calories != null ? Math.round(m.calories) : "";
+  $("em-p").value = m.protein_g != null ? Math.round(m.protein_g) : "";
+  $("em-c").value = m.carbs_g != null ? Math.round(m.carbs_g) : "";
+  $("em-f").value = m.fat_g != null ? Math.round(m.fat_g) : "";
+  $("em-note").value = m.note || "";
 }
 
 function openEdit(id) {
   const m = mealsById[id];
   if (!m) return;
   editingId = id;
-  $("em-desc").textContent = m.description || "Meal";
-  $("em-vals").innerHTML = renderVals(m);
-  $("em-note").value = m.note || "";
+  $("em-title").textContent = "Edit meal";
+  fillFields(m);
+  $("em-reanalyse").style.display = "";
+  const st = $("em-status");
+  st.textContent = "";
+  st.className = "em-status";
+  $("editModal").classList.remove("hidden");
+}
+
+function openAdd() {
+  editingId = "new";
+  $("em-title").textContent = "Add manually";
+  fillFields({});
+  $("em-reanalyse").style.display = "none"; // nothing to re-analyse yet
   const st = $("em-status");
   st.textContent = "";
   st.className = "em-status";
@@ -341,8 +366,40 @@ function closeEdit() {
   editingId = null;
 }
 
-async function reanalyse() {
+function fieldPayload() {
+  return {
+    description: ($("em-desc-in").value || "").trim() || "Manual entry",
+    calories: Number($("em-cal").value) || 0,
+    protein_g: Number($("em-p").value) || 0,
+    carbs_g: Number($("em-c").value) || 0,
+    fat_g: Number($("em-f").value) || 0,
+  };
+}
+
+async function saveMeal() {
   if (!editingId) return;
+  const st = $("em-status");
+  st.className = "em-status";
+  st.innerHTML = '<span class="spinner"></span>Saving…';
+  try {
+    const adding = editingId === "new";
+    const resp = await fetch(adding ? "/api/meals" : `/api/meals/${editingId}`, {
+      method: adding ? "POST" : "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fieldPayload()),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Save failed");
+    closeEdit();
+    refreshAll();
+  } catch (err) {
+    st.textContent = "⚠️ " + err.message;
+    st.className = "em-status error";
+  }
+}
+
+async function reanalyse() {
+  if (!editingId || editingId === "new") return;
   const note = ($("em-note").value || "").trim();
   const st = $("em-status");
   st.className = "em-status";
@@ -357,9 +414,8 @@ async function reanalyse() {
     if (!resp.ok) throw new Error(data.error || "Re-analysis failed");
 
     mealsById[editingId] = { ...mealsById[editingId], ...data };
-    $("em-desc").textContent = data.description || "Meal";
-    $("em-vals").innerHTML = renderVals(data);
-    st.textContent = "Updated ✓";
+    fillFields(data); // show the new estimate in the fields so you can tweak/save
+    st.textContent = "Updated ✓ — tweak and Save if needed";
     st.className = "em-status good";
 
     loadSummary();
@@ -368,6 +424,44 @@ async function reanalyse() {
   } catch (err) {
     st.textContent = "⚠️ " + err.message;
     st.className = "em-status error";
+  }
+}
+
+// ---- daily goal ----
+let dailyGoal = null;
+async function loadGoal() {
+  try {
+    const s = await (await fetch("/api/settings")).json();
+    dailyGoal = s.daily_goal || null;
+    const gi = $("goal-input");
+    if (gi && document.activeElement !== gi) gi.value = dailyGoal != null ? dailyGoal : "";
+    updateGoalProgress();
+  } catch {}
+}
+async function saveGoal() {
+  const raw = ($("goal-input").value || "").trim();
+  try {
+    const resp = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ daily_goal: raw === "" ? null : Number(raw) }),
+    });
+    const s = await resp.json();
+    dailyGoal = s.daily_goal || null;
+    updateGoalProgress();
+    loadTrends(); // redraw target line
+  } catch {}
+}
+function updateGoalProgress() {
+  const el = $("t-goal");
+  if (!el) return;
+  if (dailyGoal == null) { el.textContent = ""; return; }
+  const eaten = Number($("t-cal").textContent) || 0;
+  const diff = dailyGoal - eaten;
+  if (diff >= 0) {
+    el.innerHTML = `Goal ${dailyGoal} · <span class="good">${diff} kcal left</span>`;
+  } else {
+    el.innerHTML = `Goal ${dailyGoal} · <span class="bad">${Math.abs(diff)} kcal over</span>`;
   }
 }
 
@@ -385,14 +479,20 @@ if ("serviceWorker" in navigator) {
 // modal wiring
 $("em-cancel").addEventListener("click", closeEdit);
 $("em-reanalyse").addEventListener("click", reanalyse);
+$("em-save").addEventListener("click", saveMeal);
+$("addManualBtn").addEventListener("click", openAdd);
 $("editModal").addEventListener("click", (e) => {
   if (e.target.id === "editModal") closeEdit(); // tap backdrop to close
 });
+
+// goal wiring
+$("goal-input").addEventListener("change", saveGoal);
 
 function refreshAll() {
   loadSummary();
   loadHistory();
   loadTrends();
+  loadGoal();
 }
 
 // Refresh when the app is brought back to the foreground (no need to reopen it)
