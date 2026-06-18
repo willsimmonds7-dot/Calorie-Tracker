@@ -166,14 +166,20 @@ async function loadTrends() {
 
     // bar chart: last 14 days incl. today (today highlighted)
     const chartDays = days.slice(1);
-    const max = Math.max(1, dailyGoal || 0, ...chartDays.map((d) => d.cal));
+    const max = Math.max(1, dailyGoal || 0, avg7 || 0, ...chartDays.map((d) => d.cal));
     // dashed target line at the goal level (relative to the same max)
     const goalLine =
       dailyGoal != null
         ? `<div class="goal-line" style="bottom:${Math.min(100, (dailyGoal / max) * 100)}%" title="Goal ${dailyGoal} kcal"></div>`
         : "";
+    // dotted line at the 7-day average
+    const avgLine =
+      avg7 != null
+        ? `<div class="avg-line" style="bottom:${Math.min(100, (avg7 / max) * 100)}%" title="7-day avg ${avg7} kcal"></div>`
+        : "";
     chart.innerHTML =
       goalLine +
+      avgLine +
       chartDays
         .map((d, i) => {
           const h = Math.round((d.cal / max) * 100);
@@ -187,6 +193,15 @@ async function loadTrends() {
         </div>`;
         })
         .join("");
+
+    // legend for the chart lines
+    const legend = $("tr-legend");
+    if (legend) {
+      const parts = [];
+      if (avg7 != null) parts.push(`<span class="lg avg">7-day avg ${avg7}</span>`);
+      if (dailyGoal != null) parts.push(`<span class="lg goal">Goal ${dailyGoal}</span>`);
+      legend.innerHTML = parts.join("");
+    }
 
     // footer: macros + net + burned summary, all over completed days
     const loggedLast7 = last7.filter((d) => d.cal > 0);
