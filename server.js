@@ -80,6 +80,14 @@ function resolveDay(src) {
   return localDate(0);
 }
 
+// Parse an optional timestamp (ISO string) for logging meals on a past day.
+// Returns an ISO string the DB can store, or null to fall back to now().
+function parseWhen(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 // Photo is parsed in memory, sent to the AI, then discarded (nothing stored).
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -213,11 +221,12 @@ app.post("/api/meals", async (req, res) => {
     const protein_g = Number(b.protein_g) || 0;
     const carbs_g = Number(b.carbs_g) || 0;
     const fat_g = Number(b.fat_g) || 0;
+    const when = parseWhen(b.created_at);
     const { rows } = await pool.query(
-      `INSERT INTO meals (description, calories, protein_g, carbs_g, fat_g)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO meals (created_at, description, calories, protein_g, carbs_g, fat_g)
+       VALUES (COALESCE($6::timestamptz, now()), $1, $2, $3, $4, $5)
        RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
-      [description, calories, protein_g, carbs_g, fat_g]
+      [description, calories, protein_g, carbs_g, fat_g, when]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -233,14 +242,15 @@ app.post("/api/describe", async (req, res) => {
     const description = (req.body?.description || "").toString().trim().slice(0, 300);
     if (!description) return res.status(400).json({ error: "Describe what you ate." });
     const note = (req.body?.note || "").toString().slice(0, 500);
+    const when = parseWhen(req.body?.created_at);
 
     const est = await estimateFromDescription(description, note);
 
     const { rows } = await pool.query(
-      `INSERT INTO meals (description, calories, protein_g, carbs_g, fat_g, note)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO meals (created_at, description, calories, protein_g, carbs_g, fat_g, note)
+       VALUES (COALESCE($7::timestamptz, now()), $1, $2, $3, $4, $5, $6)
        RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
-      [est.description, est.calories, est.protein_g, est.carbs_g, est.fat_g, note || null]
+      [est.description, est.calories, est.protein_g, est.carbs_g, est.fat_g, note || null, when]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -254,19 +264,21 @@ app.patch("/api/meals/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const num = (v) => (v === undefined || v === null || v === "" || isNaN(Number(v)) ? null : Number(v));
+    const when = parseWhen(b.created_at);
     const { rows } = await pool.query(
       `UPDATE meals SET
          description = COALESCE($1, description),
          calories    = COALESCE($2, calories),
          protein_g   = COALESCE($3, protein_g),
          carbs_g     = COALESCE($4, carbs_g),
-         fat_g       = COALESCE($5, fat_g)
+         fat_g       = COALESCE($5, fat_g),
+         created_at  = COALESCE($7::timestamptz, created_at)
        WHERE id = $6
        RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
       [
         b.description != null ? String(b.description).slice(0, 200) : null,
         num(b.calories), num(b.protein_g), num(b.carbs_g), num(b.fat_g),
-        req.params.id,
+        req.params.id, when,
       ]
     );
     if (!rows.length) return res.status(404).json({ error: "Meal not found." });

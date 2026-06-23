@@ -343,6 +343,20 @@ async function loadHistory() {
 }
 
 // ---- meal editor modal (edit existing, manual add, or AI re-analyse) ----
+// Format a date as the local "YYYY-MM-DDTHH:MM" a datetime-local input expects.
+function toLocalInput(d) {
+  const dt = d ? new Date(d) : new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+// Read the When field back as an ISO string (or null if empty/invalid).
+function whenPayload() {
+  const v = ($("em-when").value || "").trim();
+  if (!v) return null;
+  const d = new Date(v); // interpreted in the browser's local time zone
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function fillFields(m) {
   $("em-desc-in").value = m.description || "";
   $("em-cal").value = m.calories != null ? Math.round(m.calories) : "";
@@ -350,6 +364,7 @@ function fillFields(m) {
   $("em-c").value = m.carbs_g != null ? Math.round(m.carbs_g) : "";
   $("em-f").value = m.fat_g != null ? Math.round(m.fat_g) : "";
   $("em-note").value = m.note || "";
+  $("em-when").value = toLocalInput(m.created_at); // existing time, or now for new
 }
 
 function openEdit(id) {
@@ -410,6 +425,7 @@ function fieldPayload() {
     protein_g: Number($("em-p").value) || 0,
     carbs_g: Number($("em-c").value) || 0,
     fat_g: Number($("em-f").value) || 0,
+    created_at: whenPayload(),
   };
 }
 
@@ -482,7 +498,7 @@ async function describe() {
     const resp = await fetch("/api/describe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description, note }),
+      body: JSON.stringify({ description, note, created_at: whenPayload() }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Estimate failed");
