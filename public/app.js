@@ -358,7 +358,10 @@ function openEdit(id) {
   editingId = id;
   $("em-title").textContent = "Edit meal";
   fillFields(m);
+  $("em-desc-in").placeholder = "Description (e.g. Granola bar)";
   $("em-reanalyse").style.display = "";
+  $("em-reanalyse").textContent = "Re-analyse";
+  $("em-note-label").textContent = "Comment (lets the AI re-estimate)";
   const st = $("em-status");
   st.textContent = "";
   st.className = "em-status";
@@ -369,11 +372,30 @@ function openAdd() {
   editingId = "new";
   $("em-title").textContent = "Add manually";
   fillFields({});
+  $("em-desc-in").placeholder = "Description (e.g. Granola bar)";
   $("em-reanalyse").style.display = "none"; // nothing to re-analyse yet
+  $("em-note-label").textContent = "Comment (lets the AI re-estimate)";
   const st = $("em-status");
   st.textContent = "";
   st.className = "em-status";
   $("editModal").classList.remove("hidden");
+}
+
+// Describe a meal in words; the AI estimates the calories/macros and saves it.
+function openDescribe() {
+  editingId = "describe";
+  $("em-title").textContent = "Describe a meal";
+  fillFields({});
+  $("em-desc-in").placeholder = "What did you eat? e.g. 'two slices of pepperoni pizza and a cola'";
+  $("em-reanalyse").style.display = "";
+  $("em-reanalyse").textContent = "Estimate with AI";
+  $("em-note-label").textContent = "Extra context (optional: portion size, cooking method…)";
+  $("em-note").value = "";
+  const st = $("em-status");
+  st.textContent = "Type the food, then tap “Estimate with AI”.";
+  st.className = "em-status muted";
+  $("editModal").classList.remove("hidden");
+  $("em-desc-in").focus();
 }
 
 function closeEdit() {
@@ -397,7 +419,7 @@ async function saveMeal() {
   st.className = "em-status";
   st.innerHTML = '<span class="spinner"></span>Saving…';
   try {
-    const adding = editingId === "new";
+    const adding = editingId === "new" || editingId === "describe";
     const resp = await fetch(adding ? "/api/meals" : `/api/meals/${editingId}`, {
       method: adding ? "POST" : "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -431,6 +453,49 @@ async function reanalyse() {
     mealsById[editingId] = { ...mealsById[editingId], ...data };
     fillFields(data); // show the new estimate in the fields so you can tweak/save
     st.textContent = "Updated ✓ — tweak and Save if needed";
+    st.className = "em-status good";
+
+    loadSummary();
+    loadHistory();
+    loadTrends();
+  } catch (err) {
+    st.textContent = "⚠️ " + err.message;
+    st.className = "em-status error";
+  }
+}
+
+// Describe-a-meal: send the typed description to the AI, save it, then switch
+// the modal into edit mode on the new entry so you can tweak/Save if needed.
+async function describe() {
+  if (editingId !== "describe") return;
+  const description = ($("em-desc-in").value || "").trim();
+  const note = ($("em-note").value || "").trim();
+  const st = $("em-status");
+  if (!description) {
+    st.textContent = "Type what you ate first.";
+    st.className = "em-status error";
+    return;
+  }
+  st.className = "em-status";
+  st.innerHTML = '<span class="spinner"></span>Estimating…';
+  try {
+    const resp = await fetch("/api/describe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description, note }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Estimate failed");
+
+    // It's now a real saved meal — become an editable entry.
+    editingId = String(data.id);
+    mealsById[data.id] = data;
+    $("em-title").textContent = "Edit meal";
+    $("em-reanalyse").textContent = "Re-analyse";
+    $("em-note-label").textContent = "Comment (lets the AI re-estimate)";
+    $("em-desc-in").placeholder = "Description (e.g. Granola bar)";
+    fillFields(data);
+    st.textContent = "Estimated & saved ✓ — tweak and Save if needed";
     st.className = "em-status good";
 
     loadSummary();
@@ -493,9 +558,13 @@ if ("serviceWorker" in navigator) {
 
 // modal wiring
 $("em-cancel").addEventListener("click", closeEdit);
-$("em-reanalyse").addEventListener("click", reanalyse);
+$("em-reanalyse").addEventListener("click", () => {
+  if (editingId === "describe") describe();
+  else reanalyse();
+});
 $("em-save").addEventListener("click", saveMeal);
 $("addManualBtn").addEventListener("click", openAdd);
+$("describeBtn").addEventListener("click", openDescribe);
 $("editModal").addEventListener("click", (e) => {
   if (e.target.id === "editModal") closeEdit(); // tap backdrop to close
 });

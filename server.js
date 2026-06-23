@@ -169,6 +169,16 @@ async function estimateFromText(description, note = "") {
   return runEstimate(text);
 }
 
+// Estimate a meal from a fresh free-text description (no photo, no prior entry).
+async function estimateFromDescription(description, note = "") {
+  const text =
+    `Estimate the calories and macros for this meal described in words.\n` +
+    `Meal: ${description}\n` +
+    (note ? `Extra context (use it, e.g. portion size, cooking method, sauces): ${note}\n` : "") +
+    `Give a concise, clean description of the meal.`;
+  return runEstimate(text);
+}
+
 // POST /api/analyze  -> estimate macros AND save the meal (photo is NOT stored).
 app.post("/api/analyze", upload.single("photo"), async (req, res) => {
   try {
@@ -208,6 +218,29 @@ app.post("/api/meals", async (req, res) => {
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
       [description, calories, protein_g, carbs_g, fat_g]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/describe -> AI-estimate a meal from a free-text description and save it.
+// Body JSON: { description: string, note?: string }
+app.post("/api/describe", async (req, res) => {
+  try {
+    const description = (req.body?.description || "").toString().trim().slice(0, 300);
+    if (!description) return res.status(400).json({ error: "Describe what you ate." });
+    const note = (req.body?.note || "").toString().slice(0, 500);
+
+    const est = await estimateFromDescription(description, note);
+
+    const { rows } = await pool.query(
+      `INSERT INTO meals (description, calories, protein_g, carbs_g, fat_g, note)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, created_at, description, calories, protein_g, carbs_g, fat_g, note`,
+      [est.description, est.calories, est.protein_g, est.carbs_g, est.fat_g, note || null]
     );
     res.json(rows[0]);
   } catch (err) {
